@@ -1,0 +1,15 @@
+{
+  "name": "embedding-atlas-skills",
+  "displayName": "Embedding Atlas Skills",
+  "version": "0.5.0",
+  "description": "Skills to build, export and read Embedding Atlas views with Apple's embedding-atlas command line tool and local models. A running view is read through the Embedding Atlas extension for Claude Desktop.",
+  "author": {
+    "name": "eneko-codes"
+  },
+  "license": "MIT",
+  "keywords": [
+    "embeddings",
+    "visualization",
+    "embedding-atlas"
+  ]
+}
