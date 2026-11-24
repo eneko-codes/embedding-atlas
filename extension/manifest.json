@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "embedding-atlas-mcp",
   "display_name": "Embedding Atlas",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Read and change a running Embedding Atlas view on this Mac through the MCP server Embedding Atlas itself provides",
   "long_description": "A local MCP server written in Swift that connects Claude to the MCP server Embedding Atlas provides for a running view. Embedding Atlas serves that server over HTTP from inside the view, which a chat cannot reach by itself; this extension is the piece that runs on your Mac and reaches it. It uses no third-party code.\n\nIt adds no tools of its own to a view. atlas_status says whether a view answers and whether a browser tab is connected. atlas_tools lists the tools that version of the view offers: data schema, read-only SQL, charts, layouts, column styles, app state and screenshots. atlas_call runs the ones that only read, and update_atlas runs the ones that change what the view shows, so each has its own switch.\n\nEmbedding Atlas answers MCP calls from the browser page that has the view open. With no tab open there is nothing to call; with several it relays to the last one opened; a tab in the background stalls on queries and screenshots. The view must have been started with the command line tool's MCP option. An exported site has no MCP endpoint.\n\nThe server talks to 127.0.0.1 only, on the port of the view, and never to any other host. It cannot start, stop or serve a view, it reads and writes no file, and nothing is configured.\n\nNot affiliated with or endorsed by Apple Inc.",
   "author": {

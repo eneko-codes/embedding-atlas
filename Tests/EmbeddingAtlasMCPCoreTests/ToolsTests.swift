@@ -129,7 +129,7 @@ struct ToolsTests {
         let view = FakeView.healthy(
             callResult: #"{"content":[{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}]}"#)
         let output = await call("atlas_call", ["tool": .string("app_screenshot_get")], on: view)
-        #expect(output.images == [ToolOutput.Image(data: "aGVsbG8=", mimeType: "image/png")])
+        #expect(output.content == [.image(data: "aGVsbG8=", mimeType: "image/png")])
         #expect(output.text.isEmpty)
         #expect(!output.isError)
     }

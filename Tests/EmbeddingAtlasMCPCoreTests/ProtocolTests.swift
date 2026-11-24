@@ -9,7 +9,7 @@ import Testing
 struct ProtocolTests {
 
     private func handler(view: FakeView = .healthy()) -> MCPHandler {
-        MCPHandler(tools: AtlasTools(connection: view))
+        EmbeddingAtlasMCPServer.handler(tools: AtlasTools(connection: view))
     }
 
     private func decode(_ line: String?) throws -> [String: Value] {
