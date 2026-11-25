@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "embedding-atlas-mcp",
   "display_name": "Embedding Atlas",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Read and change a running Embedding Atlas view on this Mac through the MCP server Embedding Atlas itself provides",
-  "long_description": "A local MCP server written in Swift that connects Claude to the MCP server Embedding Atlas provides for a running view. Embedding Atlas serves that server over HTTP from inside the view, which a chat cannot reach by itself; this extension is the piece that runs on your Mac and reaches it. It uses no third-party code.\n\nIt adds no tools of its own to a view. atlas_status says whether a view answers and whether a browser tab is connected. atlas_tools lists the tools that version of the view offers: data schema, read-only SQL, charts, layouts, column styles, app state and screenshots. atlas_call runs the ones that only read, and update_atlas runs the ones that change what the view shows, so each has its own switch.\n\nEmbedding Atlas answers MCP calls from the browser page that has the view open. With no tab open there is nothing to call; with several it relays to the last one opened; a tab in the background stalls on queries and screenshots. The view must have been started with the command line tool's MCP option. An exported site has no MCP endpoint.\n\nThe server talks to 127.0.0.1 only, on the port of the view, and never to any other host. It cannot start, stop or serve a view, it reads and writes no file, and nothing is configured.\n\nNot affiliated with or endorsed by Apple Inc.",
+  "long_description": "A local MCP server written in Swift that connects Claude to the MCP server Embedding Atlas provides for a running view. Embedding Atlas serves that server over HTTP from inside the view, which a chat cannot reach by itself; this extension is the piece that runs on your Mac and reaches it. It uses no third-party code.\n\nIt adds no tools of its own to a view. atlas_status says whether a view answers and whether a browser tab is connected. atlas_tools lists the tools that version of the view offers: data schema, read-only SQL, charts, layouts, column styles, app state and screenshots. atlas_call runs the ones that only read, and update_atlas runs the ones that change what the view shows, so each has its own switch.\n\nEmbedding Atlas answers MCP calls from the browser page that has the view open. With no tab open there is nothing to call; with several it relays to the last one opened; a tab in the background stalls on queries and screenshots.\n\nResults are bounded. The list of the view's tools is paged. The plain text a view tool returns comes in windows, each saying the call for the rest; JSON a view tool returns is never cut, so one too long is refused with its size and the advice to narrow the view's own arguments; a screenshot is scaled to fit. update_atlas cannot resume a long receipt. The view must have been started with the command line tool's MCP option. An exported site has no MCP endpoint.\n\nThe server talks to 127.0.0.1 only, on the port of the view, and never to any other host. It cannot start, stop or serve a view, it reads and writes no file, and nothing is configured.\n\nNot affiliated with or endorsed by Apple Inc.",
   "author": {
     "name": "eneko-codes",
     "url": "https://github.com/eneko-codes"
@@ -29,19 +29,19 @@
   "tools": [
     {
       "name": "atlas_status",
-      "description": "Reports whether an Embedding Atlas view answers on this Mac, which columns it uses, whether it has its MCP endpoint and whether a browser tab is connected. Call it first, and whenever another tool fails."
+      "description": "Reports whether an Embedding Atlas view answers on this Mac, which columns it uses, whether it has its MCP endpoint and whether a browser tab is connected. A short, fixed-size answer. Call it first, and whenever another tool fails."
     },
     {
       "name": "atlas_tools",
-      "description": "Lists the tools the running view offers itself and marks the ones that change what it shows; with a name, returns that tool's input schema. Needs the view open in a browser tab."
+      "description": "Lists the tools the running view offers itself, a page at a time with limit and offset, and marks the ones that change what it shows; with a name, returns that tool's full description and input schema in windows of character_offset and max_characters. Needs the view open in a browser tab."
     },
     {
       "name": "atlas_call",
-      "description": "Calls one of the view's own tools that only reads: schema, read-only SQL, chart and layout specs, app state, screenshots. Needs the view open in a browser tab, in front."
+      "description": "Calls one of the view's own tools that only reads: schema, read-only SQL, chart and layout specs, app state, screenshots. Plain text comes in windows (character_offset, max_characters); JSON is returned whole or refused, never cut; one image at most, scaled to fit. Needs the view open in a browser tab, in front."
     },
     {
       "name": "update_atlas",
-      "description": "Calls one of the view's own tools that changes what the view shows: creating, changing or removing charts and layouts, column styles. The change lands in the browser tab the view relays to."
+      "description": "Calls one of the view's own tools that changes what the view shows: creating, changing or removing charts and layouts, column styles. The change lands in the browser tab the view relays to. A longer receipt cannot be read again, because asking again would repeat the change."
     }
   ],
   "compatibility": {

@@ -13,6 +13,14 @@ public enum ToolError: Error, Equatable {
     case changesTheView(tool: String)
     case onlyReads(tool: String)
     case viewFailed(String)
+    case unknownTool(String)
+    case unknownArgument(name: String, others: Int, allowed: [String])
+    case tabNotAnsweringDuringChange
+    case timedOut(seconds: Int, changing: Bool)
+    case structuredTooLong(characters: Int, limit: Int, ran: Bool)
+
+    /// How much of the view's own error text is repeated.
+    public static let viewMessageWidth = 500
 
     public var message: String {
         switch self {
@@ -73,15 +81,62 @@ public enum ToolError: Error, Equatable {
 
         case .changesTheView(let tool):
             return """
-                \(tool) changes what the view shows, so atlas_call will not run it. Use \
+                \(ToolStandard.echo(tool)) changes what the view shows, so atlas_call will not run it. Use \
                 update_atlas for it.
                 """
 
         case .onlyReads(let tool):
-            return "\(tool) only reads, so it belongs to atlas_call, not update_atlas."
+            return "\(ToolStandard.echo(tool)) only reads, so it belongs to atlas_call, not update_atlas."
 
         case .viewFailed(let reason):
-            return "The view answered with an error: \(reason)"
+            let clipped = reason.count > Self.viewMessageWidth
+                ? String(reason.prefix(Self.viewMessageWidth)) + "…" : reason
+            return "The view answered with an error: \(clipped)"
+
+        case .unknownTool(let name):
+            return """
+                '\(ToolStandard.echo(name))' is not a tool of this server. It has atlas_status, \
+                atlas_tools, atlas_call and update_atlas.
+                """
+
+        case .unknownArgument(let name, let others, let allowed):
+            let more = others > 0 ? " (and \(others) more)" : ""
+            return """
+                '\(ToolStandard.echo(name))'\(more) is not an argument of this tool. Allowed: \
+                \(allowed.joined(separator: ", ")).
+                """
+
+        case .tabNotAnsweringDuringChange:
+            return ToolError.tabNotAnswering.message + """
+
+
+                The change may still have been made: read the view's state with atlas_call before \
+                repeating it.
+                """
+
+        case .timedOut(let seconds, let changing):
+            let effect = changing
+                ? "The change may still have been made: read the view's state with atlas_call before repeating it."
+                : "Nothing was changed."
+            return """
+                The call did not finish within \(seconds) seconds and was abandoned. \(effect)
+
+                A tab that is hidden or in the background stalls on queries and screenshots: have \
+                it brought to the front, and ask for less.
+                """
+
+        case .structuredTooLong(let characters, let limit, let ran):
+            let effect = ran
+                ? "The view ran the tool, so do not repeat the call; only its result is too long to return."
+                : "Nothing was changed."
+            return """
+                The result is structured text (JSON) of \(characters) characters, longer than the \
+                \(limit) a result may hold, and it cannot be cut without breaking it. \(effect)
+
+                Narrow the view's own arguments so that it returns less: fewer columns or a LIMIT \
+                in a query, one chart or layout instead of all. character_offset and \
+                max_characters do not apply to it.
+                """
         }
     }
 }

@@ -22,11 +22,22 @@ Embedding Atlas already has an MCP server: a view started with the MCP option an
 | Tool | What it does |
 |---|---|
 | `atlas_status` | Says whether a view answers, which columns it uses, whether it has its MCP endpoint, and whether a browser tab is connected. |
-| `atlas_tools` | Lists the tools the running view offers and marks the ones that change it. With a name, returns that tool's input schema. |
+| `atlas_tools` | Lists the tools the running view offers, a page at a time (`limit`, `offset`), and marks the ones that change it. With a name, returns that tool's full description and input schema in windows (`character_offset`, `max_characters`). |
 | `atlas_call` | Calls one of the view's tools that only reads: schema, read-only SQL, specs, app state, screenshots. |
 | `update_atlas` | Calls one of the view's tools that changes what the view shows: charts, layouts, column styles. |
 
 Each takes an optional `port`, for a view that is not on the tool's default port.
+
+## How results are bounded
+
+The limits are constants in `ToolCatalog` and `ToolStandard`; the tool descriptions quote them, and the README does not repeat them.
+
+- **Plain text** from a view's tool comes in a window: `character_offset` and `max_characters` on `atlas_call`, and `max_characters` on `update_atlas`. They are this server's own arguments and are never sent to the view. The first line of a window that does not end the text gives the call for the rest.
+- **JSON text** is never cut. It is returned whole up to a stated length, and refused beyond it with its size and the advice to narrow the view's own arguments, such as a `LIMIT` in a query.
+- **`update_atlas` cannot resume**: asking again would repeat the change, so a receipt longer than its window says the rest cannot be read again.
+- **Images**: at most one per call, scaled down to a stated side and size when larger.
+- **Time**: a call is abandoned at a deadline inside the standard's time limit. A timed-out `update_atlas` says the change may still have been made.
+- An argument a tool does not list is refused, with the names it allows.
 
 ## The rules worth knowing before you use it
 

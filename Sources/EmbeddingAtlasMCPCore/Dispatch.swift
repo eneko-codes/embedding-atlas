@@ -12,22 +12,42 @@ public struct AtlasTools: ToolHandler {
     public static let relayTimeout = Duration.seconds(45)
     public static let metadataTimeout = Duration.seconds(10)
 
-    public init(connection: any ViewConnection) {
+    /// The longest a whole call may take: a metadata request and a relay one, with room.
+    /// It sits above both, because the connection's own timeout is a wait for silence and
+    /// not a limit on the whole answer, and inside `ToolStandard.timeLimit`.
+    public static let callDeadline = Duration.seconds(90)
+
+    private let deadline: Duration
+
+    public init(connection: any ViewConnection, deadline: Duration = AtlasTools.callDeadline) {
         self.connection = connection
+        self.deadline = deadline
     }
 
     public func handle(_ call: ToolCall) async -> ToolOutput {
         let start = ContinuousClock.now
+        let outcome = await Deadline.run(within: deadline) { await self.run(call, since: start) }
+        if let outcome { return outcome }
+        let error = ToolError.timedOut(
+            seconds: Int(deadline.components.seconds), changing: call.name == ToolCatalog.updateName)
+        Diagnostics.toolFailed(call.name, error: error, since: start)
+        return ToolOutput(text: error.message, isError: true)
+    }
+
+    private func run(_ call: ToolCall, since start: ContinuousClock.Instant) async -> ToolOutput {
         do {
+            guard let tool = ToolCatalog.all().first(where: { $0.name == call.name }) else {
+                throw ToolError.unknownTool(call.name)
+            }
             let arguments = Arguments(call.arguments)
-            let port = try arguments.int(
+            try arguments.requireOnly(ToolCatalog.argumentNames(of: tool))
+            let port = try arguments.identifier(
                 "port", default: ToolCatalog.defaultPort, in: ToolCatalog.portRange)
             switch call.name {
             case ToolCatalog.statusName: return try await status(port: port)
             case ToolCatalog.toolsName: return try await tools(arguments, port: port)
             case ToolCatalog.callName: return try await forward(arguments, port: port, changing: false)
-            case ToolCatalog.updateName: return try await forward(arguments, port: port, changing: true)
-            default: return ToolOutput(text: "Unknown tool.", isError: true)
+            default: return try await forward(arguments, port: port, changing: true)
             }
         } catch let error as ToolError {
             Diagnostics.toolFailed(call.name, error: error, since: start)
@@ -141,66 +161,210 @@ public struct AtlasTools: ToolHandler {
 
     // MARK: atlas_tools
 
+    private struct ToolRow {
+        var name: String
+        var line: String
+        var clipped: Bool
+    }
+
     func tools(_ arguments: Arguments, port: Int) async throws -> ToolOutput {
         let listed = try await relay(port: port, method: "tools/list")["tools"]?.arrayValue ?? []
-        if let wanted = arguments.optionalString("name") {
+        if let wanted = try arguments.optionalString("name") {
+            let window = try arguments.window()
             guard let tool = listed.first(where: { $0.objectValue?["name"]?.stringValue == wanted })?
                 .objectValue
             else {
-                throw ToolError.badArgument(name: "name", reason: "the view has no tool named \(wanted)")
+                throw ToolError.badArgument(
+                    name: "name",
+                    reason: "the view has no tool named \(ToolStandard.echo(wanted)); call atlas_tools without name to list them")
             }
             let schema = tool["inputSchema"].flatMap(Self.compact) ?? "{}"
             let kind = ViewToolPolicy.changesView(wanted) ? "changes the view" : "only reads"
             let text =
                 "\(wanted) (\(kind)): \(tool["description"]?.stringValue ?? "")\ninput schema: \(schema)"
-            return ToolOutput(text: Self.cut(text), isError: false)
+            let notices = arguments.notices
+            return ToolOutput(
+                text: ToolStandard.fitting(window.maxCharacters) { size in
+                    let part = ToolStandard.window(
+                        of: text, characterOffset: window.characterOffset, maxCharacters: size)
+                    return ToolStandard.withNotices(notices + [part.notice].compactMap { $0 }, part.text)
+                }, isError: false)
         }
-        let lines = listed.compactMap { entry -> String? in
+
+        let (limit, offset) = try arguments.page(
+            defaultLimit: ToolCatalog.defaultToolLimit, limits: ToolCatalog.toolLimitRange)
+        // By name, and by position in the view's list when two share one, so no two rows tie.
+        let rows = listed.enumerated().compactMap { index, entry -> (Int, ToolRow)? in
             guard let tool = entry.objectValue, let name = tool["name"]?.stringValue else { return nil }
             let names = (tool["inputSchema"]?.objectValue?["properties"]?.objectValue ?? [:]).keys.sorted()
             let description = (tool["description"]?.stringValue ?? "")
                 .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let width = ToolCatalog.descriptionWidth
+            let clipped = description.count > width
+            let shown = clipped ? String(description.prefix(width - 1)) + "…" : description
             let mark = ViewToolPolicy.changesView(name) ? " [changes the view]" : ""
-            return "\(name)(\(names.joined(separator: ", ")))\(mark): \(description)"
+            return (
+                index,
+                ToolRow(
+                    name: name, line: "\(name)(\(names.joined(separator: ", ")))\(mark): \(shown)",
+                    clipped: clipped)
+            )
+        }.sorted { ($0.1.name, $0.0) < ($1.1.name, $1.0) }.map(\.1)
+
+        guard !rows.isEmpty else {
+            return ToolOutput(
+                text: ToolStandard.withNotices(arguments.notices, "The view offers no tools."),
+                isError: false)
         }
-        return ToolOutput(text: Self.cut(lines.joined(separator: "\n")), isError: false)
+        let notices = arguments.notices
+        return ToolOutput(
+            text: ToolStandard.fitting(limit) { size in
+                let page = Array(rows.dropFirst(offset).prefix(size))
+                var all = notices
+                if let position = Notice.page(
+                    offset: offset, count: page.count, total: rows.count, things: "tools")
+                {
+                    all.append(position)
+                }
+                if page.contains(where: \.clipped) {
+                    all.append(
+                        Notice.clipped(
+                            field: "Description", width: ToolCatalog.descriptionWidth,
+                            tool: "atlas_tools with name"))
+                }
+                return ToolStandard.withNotices(all, page.map(\.line).joined(separator: "\n"))
+            }, isError: false)
     }
 
     // MARK: atlas_call and update_atlas
 
+    /// What the view's tool returned: its text blocks, its images, whether it failed.
+    private struct ViewResult {
+        var failed = false
+        var blocks: [String] = []
+        var images: [(data: String, mimeType: String)] = []
+    }
+
     func forward(_ arguments: Arguments, port: Int, changing: Bool) async throws -> ToolOutput {
         let tool = try arguments.requiredString("tool")
-        let toolArguments = try arguments.object("arguments")
+        var forwarded = try arguments.object("arguments")
         if ViewToolPolicy.changesView(tool) != changing {
             throw changing ? ToolError.onlyReads(tool: tool) : ToolError.changesTheView(tool: tool)
         }
-        let result = try await relay(
-            port: port, method: "tools/call",
-            parameters: .object(["name": .string(tool), "arguments": .object(toolArguments)]))
+        // The window arguments are this server's own. A caller that nests them with the
+        // view's arguments still gets the window it asked for, and the view never sees them.
+        if changing, forwarded["character_offset"] != nil {
+            throw ToolError.badArgument(
+                name: "arguments.character_offset",
+                reason: "update_atlas has no character_offset, because asking again would repeat the change")
+        }
+        var nested: [String: Value] = [:]
+        for name in ["character_offset", "max_characters"] {
+            if let value = forwarded.removeValue(forKey: name) { nested[name] = value }
+        }
+        let reading = arguments.filling(in: nested)
+        let window = try reading.window(offsetAllowed: !changing)
 
-        var failed = result["isError"]?.boolValue ?? false
-        var texts: [String] = []
-        var images: [ToolOutput.Block] = []
+        let result: [String: Value]
+        do {
+            result = try await relay(
+                port: port, method: "tools/call",
+                parameters: .object(["name": .string(tool), "arguments": .object(forwarded)]))
+        } catch ToolError.tabNotAnswering where changing {
+            throw ToolError.tabNotAnsweringDuringChange
+        }
+
+        var viewResult = ViewResult(failed: result["isError"]?.boolValue ?? false)
         for item in result["content"]?.arrayValue ?? [] {
             guard let block = item.objectValue else { continue }
             switch block["type"]?.stringValue {
             case "text":
                 let text = block["text"]?.stringValue ?? ""
                 // A failure inside the view comes back as a JSON object with "error".
-                if text.trimmingCharacters(in: .whitespaces).hasPrefix("{\"error\"") { failed = true }
-                texts.append(text)
+                if text.trimmingCharacters(in: .whitespaces).hasPrefix("{\"error\"") {
+                    viewResult.failed = true
+                }
+                viewResult.blocks.append(text)
             case "image":
                 if let data = block["data"]?.stringValue, let mimeType = block["mimeType"]?.stringValue {
-                    images.append(.image(data: data, mimeType: mimeType))
+                    viewResult.images.append((data, mimeType))
                 }
             default:
-                texts.append("[content of a kind this server does not relay]")
+                viewResult.blocks.append("[content of a kind this server does not relay]")
             }
         }
-        var text = Self.cut(texts.joined(separator: "\n"))
-        if text.isEmpty && images.isEmpty { text = "(the view returned no content)" }
+        return try shaped(
+            viewResult, window: window, notices: reading.notices, changing: changing)
+    }
+
+    /// One result inside the standard: images fitted, text windowed or refused, and every
+    /// notice before the data.
+    private func shaped(
+        _ result: ViewResult, window: (characterOffset: Int, maxCharacters: Int),
+        notices: [String], changing: Bool
+    ) throws -> ToolOutput {
+        var notices = notices
+        var images: [ToolOutput.Block] = []
+        for (index, image) in result.images.enumerated() {
+            if index >= ToolCatalog.maximumImages { continue }
+            guard let fitted = ImageBounds.fit(base64: image.data, mimeType: image.mimeType) else {
+                notices.append(
+                    "The image the view returned could not be read or brought within \(ToolCatalog.longestImageSide) pixels and \(ToolCatalog.largestImageBytes) bytes, and was left out.")
+                continue
+            }
+            if let notice = fitted.notice { notices.append(notice) }
+            images.append(.image(data: fitted.data, mimeType: fitted.mimeType))
+        }
+        if result.images.count > ToolCatalog.maximumImages {
+            notices.append(
+                "Showing \(ToolCatalog.maximumImages) of \(result.images.count) images; the rest are not returned.")
+        }
+
+        let whole = result.blocks.joined(separator: "\n")
+        var text: String
+        if whole.isEmpty {
+            text = images.isEmpty && notices.isEmpty ? "(the view returned no content)" : ""
+            text = ToolStandard.withNotices(notices, text)
+        } else if Self.isStructured(result.blocks) {
+            let size = whole.utf16.count + notices.joined(separator: "\n").utf16.count
+            guard size <= ToolCatalog.longestStructuredResult else {
+                throw ToolError.structuredTooLong(
+                    characters: size, limit: ToolCatalog.longestStructuredResult,
+                    ran: changing && !result.failed)
+            }
+            text = ToolStandard.withNotices(notices, whole)
+        } else {
+            let total = whole.count
+            let fixed = notices
+            text = ToolStandard.fitting(window.maxCharacters) { size in
+                if changing {
+                    // Asking again would repeat the change, so nothing here is resumable.
+                    let shown = String(whole.prefix(size))
+                    let cut = total > size
+                        ? ["Cut at \(size) of \(total) characters; the rest cannot be read again."] : []
+                    return ToolStandard.withNotices(fixed + cut, shown)
+                }
+                let part = ToolStandard.window(
+                    of: whole, characterOffset: window.characterOffset, maxCharacters: size)
+                return ToolStandard.withNotices(fixed + [part.notice].compactMap { $0 }, part.text)
+            }
+        }
         // Text first, so that a note about a picture is read before the picture.
-        return ToolOutput(content: (text.isEmpty ? [] : [.text(text)]) + images, isError: failed)
+        return ToolOutput(
+            content: (text.isEmpty ? [] : [.text(text)]) + images, isError: result.failed)
+    }
+
+    /// Structured when every text block is a JSON object or array: cutting it mid-way would
+    /// break it, so it is returned whole or refused.
+    static func isStructured(_ blocks: [String]) -> Bool {
+        let filled = blocks.filter { !$0.allSatisfy(\.isWhitespace) }
+        guard !filled.isEmpty else { return false }
+        return filled.allSatisfy { block in
+            guard let first = block.first(where: { !$0.isWhitespace }), first == "{" || first == "[" else {
+                return false
+            }
+            return (try? JSONSerialization.jsonObject(with: Data(block.utf8))) != nil
+        }
     }
 
     // MARK: Shared
@@ -209,12 +373,5 @@ public struct AtlasTools: ToolHandler {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) }
-    }
-
-    static func cut(_ text: String) -> String {
-        let limit = ToolCatalog.maximumTextCharacters
-        guard text.count > limit else { return text }
-        return String(text.prefix(limit))
-            + "\n[cut at \(limit) of \(text.count) characters: ask for less]"
     }
 }
