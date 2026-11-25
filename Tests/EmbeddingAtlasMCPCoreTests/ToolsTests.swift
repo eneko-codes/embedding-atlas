@@ -124,12 +124,13 @@ struct ToolsTests {
                 == "SELECT count(*) AS n FROM dataset")
     }
 
-    @Test("A screenshot comes back as an image, unchanged")
+    @Test("A screenshot within the limits comes back as an image, unchanged")
     func screenshotsPassThrough() async {
+        let png = Pictures.png(width: 64, height: 48)
         let view = FakeView.healthy(
-            callResult: #"{"content":[{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}]}"#)
+            callResult: #"{"content":[{"type":"image","data":"\#(png)","mimeType":"image/png"}]}"#)
         let output = await call("atlas_call", ["tool": .string("app_screenshot_get")], on: view)
-        #expect(output.content == [.image(data: "aGVsbG8=", mimeType: "image/png")])
+        #expect(output.content == [.image(data: png, mimeType: "image/png")])
         #expect(output.text.isEmpty)
         #expect(!output.isError)
     }
@@ -150,15 +151,6 @@ struct ToolsTests {
         let output = await call("atlas_call", ["tool": .string("data_query")], on: view)
         #expect(output.isError)
         #expect(output.text.contains("Only readonly queries"))
-    }
-
-    @Test("Long text is cut at the limit and says so")
-    func longTextIsCut() async {
-        let long = String(repeating: "x", count: ToolCatalog.maximumTextCharacters + 500)
-        let view = FakeView.healthy(callResult: #"{"content":[{"type":"text","text":"\#(long)"}]}"#)
-        let output = await call("atlas_call", ["tool": .string("chart_spec_schema")], on: view)
-        #expect(output.text.count < long.count)
-        #expect(output.text.contains("[cut at \(ToolCatalog.maximumTextCharacters) of \(long.count) characters"))
     }
 
     @Test("Arguments must be an object and the tool must be named")

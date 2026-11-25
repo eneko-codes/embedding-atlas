@@ -81,14 +81,15 @@ struct ProtocolTests {
 
     @Test("A screenshot is returned as an image content block")
     func imageContent() async throws {
+        let png = Pictures.png(width: 16, height: 16)
         let view = FakeView.healthy(
-            callResult: #"{"content":[{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}]}"#)
+            callResult: #"{"content":[{"type":"image","data":"\#(png)","mimeType":"image/png"}]}"#)
         let reply = await handler(view: view).respond(
             to: #"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"atlas_call","arguments":{"tool":"app_screenshot_get"}}}"#)
         let blocks = try #require(try result(reply)["content"]?.arrayValue)
         #expect(blocks.count == 1)
         #expect(blocks[0].objectValue?["type"]?.stringValue == "image")
-        #expect(blocks[0].objectValue?["data"]?.stringValue == "aGVsbG8=")
+        #expect(blocks[0].objectValue?["data"]?.stringValue == png)
         #expect(blocks[0].objectValue?["mimeType"]?.stringValue == "image/png")
     }
 
