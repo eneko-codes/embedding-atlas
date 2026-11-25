@@ -57,7 +57,7 @@ Zip the contents of `plugin/` as `dist/embedding-atlas-skills.zip` and upload it
 
 ### Signing
 
-The script signs ad-hoc by default, which gives the binary a new identity on every rebuild. Set `MCPB_SIGN_IDENTITY` to a signing identity for a stable one, and `MCPB_HARDENED=1` when preparing something to distribute.
+The script signs ad-hoc by default, which gives the binary a new identity on every rebuild. Set `MCPB_SIGN_IDENTITY` to the 40-character hash of a signing identity, from `security find-identity -v -p codesigning`, for a stable one; pass the hash rather than the certificate's name, which carries yours and which the script prints. Add `MCPB_HARDENED=1` when preparing something to distribute.
 
 ## Tool switches
 
