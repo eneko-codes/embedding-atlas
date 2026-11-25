@@ -4,7 +4,7 @@ import Foundation
 ///
 /// Never opens a connection itself: everything goes through `ViewConnection`, which is
 /// what lets the tests drive every branch below against an in-memory double.
-public struct AtlasTools: Sendable {
+public struct AtlasTools: ToolHandler {
     private let connection: any ViewConnection
 
     /// The view gives up on its browser tab after half a minute. Waiting a little longer
@@ -180,7 +180,7 @@ public struct AtlasTools: Sendable {
 
         var failed = result["isError"]?.boolValue ?? false
         var texts: [String] = []
-        var images: [ToolOutput.Image] = []
+        var images: [ToolOutput.Block] = []
         for item in result["content"]?.arrayValue ?? [] {
             guard let block = item.objectValue else { continue }
             switch block["type"]?.stringValue {
@@ -191,7 +191,7 @@ public struct AtlasTools: Sendable {
                 texts.append(text)
             case "image":
                 if let data = block["data"]?.stringValue, let mimeType = block["mimeType"]?.stringValue {
-                    images.append(ToolOutput.Image(data: data, mimeType: mimeType))
+                    images.append(.image(data: data, mimeType: mimeType))
                 }
             default:
                 texts.append("[content of a kind this server does not relay]")
@@ -199,7 +199,8 @@ public struct AtlasTools: Sendable {
         }
         var text = Self.cut(texts.joined(separator: "\n"))
         if text.isEmpty && images.isEmpty { text = "(the view returned no content)" }
-        return ToolOutput(text: text, images: images, isError: failed)
+        // Text first, so that a note about a picture is read before the picture.
+        return ToolOutput(content: (text.isEmpty ? [] : [.text(text)]) + images, isError: failed)
     }
 
     // MARK: Shared

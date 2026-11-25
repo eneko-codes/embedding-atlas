@@ -3,7 +3,7 @@ import Foundation
 public enum EmbeddingAtlasMCPServer {
 
     public static let name = "embedding-atlas-mcp"
-    public static let version = "1.0.0"
+    public static let version = "1.0.1"
 
     /// Returned from `initialize`. It carries what per-tool descriptions cannot state
     /// once: that the tools belong to the view and live in a browser tab, and what follows
@@ -46,19 +46,14 @@ public enum EmbeddingAtlasMCPServer {
 
     /// The connection is a parameter so the whole server can be driven by a double. Nothing
     /// in this function opens a connection by itself.
-    ///
-    /// stdout is the JSON-RPC stream and carries nothing else: a stray line there breaks
-    /// every response after it. Diagnostics go to stderr.
     public static func run(connection: any ViewConnection = LoopbackConnection()) async {
-        let handler = MCPHandler(tools: AtlasTools(connection: connection))
         Diagnostics.started(version: version)
-        await serve(
-            lines: FileHandle.standardInput.bytes.lines, handler: handler,
-            write: { reply in
-                // One write per line, so concurrent replies cannot interleave halves of
-                // lines. `try?`: the throwing overload reports a closed pipe as an error,
-                // where the plain `write(_:)` raises an exception Swift cannot catch.
-                try? FileHandle.standardOutput.write(contentsOf: Data((reply + "\n").utf8))
-            })
+        await serveStandardStreams(handler: handler(tools: AtlasTools(connection: connection)))
+    }
+
+    public static func handler(tools: AtlasTools) -> MCPHandler {
+        MCPHandler(
+            name: name, version: version, instructions: instructions,
+            catalog: ToolCatalog.all(), tools: tools)
     }
 }

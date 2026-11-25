@@ -16,7 +16,7 @@ A view holds somebody's dataset. Everything this server relays is that data: row
 
 Two parts:
 
-- A local MCP server (Swift 6, stdio transport) packaged as a Claude Desktop extension. It reaches the MCP server Embedding Atlas provides for a running view and passes that view's tools through. HTTP to `127.0.0.1` only, no file access, no user configuration, **no third-party dependency**: `Package.swift` lists none, and the MCP protocol (JSON-RPC over stdio) is `MCPServer.swift` over Foundation. Adding a package needs the owner's say-so.
+- A local MCP server (Swift 6, stdio transport) packaged as a Claude Desktop extension. It reaches the MCP server Embedding Atlas provides for a running view and passes that view's tools through. HTTP to `127.0.0.1` only, no file access, no user configuration, **no third-party dependency**: `Package.swift` lists none, and the MCP protocol (JSON-RPC over stdio) is `MCPServer.swift` over Foundation. Adding a package needs the owner's say-so. `MCPServer.swift`, `Value.swift` and `Tests/…/MCPProtocolTests.swift` are copied unchanged into every one of the owner's MCP servers (the test file differs only in its `@testable import`): a change to one is made to every copy in the same piece of work.
 - `plugin/`: three skills about using Embedding Atlas. They say nothing about where the tool runs, and they register no MCP server.
 
 ## Facts easy to get wrong
