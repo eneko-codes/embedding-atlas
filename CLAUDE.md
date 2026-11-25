@@ -20,7 +20,7 @@ Two parts:
 
 - `plugin/`: three skills about using Embedding Atlas. They say nothing about where the tool runs, and they register no MCP server.
 
-`ToolStandard.swift` holds what every tool here must keep to: the longest result, description and error, the time a call may take, the fixed wording of each notice that says what a result left out (`Notice`), and the guard `MCPServer.swift` passes every result through. A tool bounds its own result and says how to get the rest; the guard only catches the one that forgot. `Deadline.swift` is a copy of the reference server's `Deadline`, kept in a file of its own so it can be replaced when it moves into the shared file.
+`ToolStandard.swift` holds what every tool here must keep to: the longest result, description and error, the time a call may take, the fixed wording of each notice that says what a result left out (`Notice`), and the guard `MCPServer.swift` passes every result through. A tool bounds its own result and says how to get the rest; the guard only catches the one that forgot. `Deadline`, which abandons a call at its time limit, is part of `ToolStandard.swift`.
 
 ## Facts easy to get wrong
 
